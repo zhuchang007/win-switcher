@@ -26,6 +26,12 @@ namespace WinSwitcher
 
         public const int SW_SHOW = 5;
 
+        // SetWindowPos: climb back to the top of the topmost band.
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOACTIVATE = 0x0010;
+
         // WinEvent: a different top-level window became foreground.
         public const uint EVENT_SYSTEM_FOREGROUND = 3;
         public const uint WINEVENT_OUTOFCONTEXT = 0;
@@ -115,6 +121,19 @@ namespace WinSwitcher
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int X, int Y, int cx, int cy, uint uFlags);
+
+        /// <summary>Push our window back to the top of the topmost band without
+        /// moving, resizing, or activating it (never steals focus).</summary>
+        public static void ReassertTopmost(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return;
+            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
 
         [DllImport("user32.dll")]
         private static extern bool SetActiveWindow(IntPtr hWnd);
@@ -230,9 +249,11 @@ namespace WinSwitcher
 
         private static WinEventProc foregroundProc;
         private static IntPtr foregroundHook;
+        private static IntPtr ownerHwnd;
 
-        public static void InstallForegroundHook()
+        public static void InstallForegroundHook(IntPtr owner)
         {
+            ownerHwnd = owner;
             if (foregroundHook != IntPtr.Zero) return;
             foregroundProc = ForegroundChanged;
             // Out-of-context global hook: events are posted to this (UI) thread's queue.
@@ -247,6 +268,10 @@ namespace WinSwitcher
             if (idObject != 0 || idChild != 0) return; // window-level events only
             try
             {
+                // A foreground change reshuffles z-order (and the new window may itself be
+                // topmost): climb straight back to the top of the topmost band.
+                ReassertTopmost(ownerHwnd);
+
                 if (!IsSwitchable(hwnd)) return;
                 lock (orderLock)
                 {
@@ -343,7 +368,7 @@ namespace WinSwitcher
         }
 
         /// <summary>Pick and activate the next window in the kept rotation on a fresh worker.</summary>
-        public static void RequestSwitch()
+        public static void RequestSwitch(IntPtr owner)
         {
             Thread t = new Thread(delegate()
             {
@@ -369,6 +394,8 @@ namespace WinSwitcher
                 }
 
                 Thread.Sleep(250);
+                // The activated window may itself be topmost and have climbed above us.
+                ReassertTopmost(owner);
                 lock (orderLock)
                 {
                     // Drop a stale marker if no foreground event matched the activation.
@@ -578,6 +605,8 @@ namespace WinSwitcher
         private Point dragOffset;
 
         private readonly ToolTip toolTip;
+        private System.Windows.Forms.Timer topmostTimer;
+        private bool menuOpen;
 
         public SwitchButtonForm()
         {
@@ -614,7 +643,7 @@ namespace WinSwitcher
         {
             base.OnHandleCreated(e);
             Native.ApplyEllipticRegion(Handle, Diameter);
-            Native.InstallForegroundHook();
+            Native.InstallForegroundHook(Handle);
         }
 
         protected override void OnShown(EventArgs e)
@@ -622,6 +651,17 @@ namespace WinSwitcher
             base.OnShown(e);
             // First layered-window paint must happen after the native window is positioned & shown.
             Render();
+
+            // Safety net for topmost windows that appear without a foreground change
+            // (or a borderless fullscreen app). Foreground events re-assert immediately;
+            // this is the periodic backstop.
+            topmostTimer = new System.Windows.Forms.Timer();
+            topmostTimer.Interval = 1000;
+            topmostTimer.Tick += delegate
+            {
+                if (!menuOpen && IsHandleCreated) Native.ReassertTopmost(Handle);
+            };
+            topmostTimer.Start();
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -687,13 +727,23 @@ namespace WinSwitcher
             Cursor = mouseInside ? Cursors.Hand : Cursors.Default;
 
             if (wasClick) SwitchToNextWindow();
+            else Native.ReassertTopmost(Handle);
         }
 
         private void ShowMenu()
         {
             bool startupEnabled = Startup.IsEnabled();
             Point p = Cursor.Position;
-            int cmd = Native.ShowContextMenu(Handle, p.X, p.Y, startupEnabled);
+            int cmd;
+            menuOpen = true;
+            try
+            {
+                cmd = Native.ShowContextMenu(Handle, p.X, p.Y, startupEnabled);
+            }
+            finally
+            {
+                menuOpen = false;
+            }
 
             if (cmd == Native.IDM_STARTUP)
             {
@@ -705,9 +755,9 @@ namespace WinSwitcher
             }
         }
 
-        private static void SwitchToNextWindow()
+        private void SwitchToNextWindow()
         {
-            Native.RequestSwitch();
+            Native.RequestSwitch(Handle);
         }
 
         private void Render()
@@ -768,7 +818,11 @@ namespace WinSwitcher
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && toolTip != null) toolTip.Dispose();
+            if (disposing)
+            {
+                if (toolTip != null) toolTip.Dispose();
+                if (topmostTimer != null) topmostTimer.Dispose();
+            }
             base.Dispose(disposing);
         }
     }
