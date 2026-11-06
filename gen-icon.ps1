@@ -4,7 +4,9 @@
 Add-Type -AssemblyName System.Drawing
 
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sizes = 16, 32, 48, 64, 128, 256
+# Only the sizes the Windows shell actually requests; any intermediate size
+# (e.g. high-DPI 72/96px) is downscaled from the 256 frame by LoadIconWithScaleDown.
+$sizes = 16, 32, 48, 256
 
 function New-FrameBitmap([int]$s) {
     $bmp = New-Object System.Drawing.Bitmap($s, $s, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
