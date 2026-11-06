@@ -34,6 +34,8 @@
 | 文件 | 作用 |
 |---|---|
 | `Switcher.cs` | 全部源码（Win32 窗口枚举/激活 + 分层窗口自绘圆形图标） |
+| `app.ico` | 多尺寸应用图标（16–256px），编译时嵌入 exe，与悬浮按钮同图案 |
+| `gen-icon.ps1` | `app.ico` 的生成脚本（PowerShell + System.Drawing，无需额外工具） |
 | `app.manifest` | 声明系统级 DPI 感知，高分屏不糊 |
 | `build.bat` | 一键编译脚本 |
 | `Switcher.exe` | 编译产物，可直接拷贝使用 |

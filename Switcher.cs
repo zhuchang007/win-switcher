@@ -582,6 +582,7 @@ namespace WinSwitcher
         public SwitchButtonForm()
         {
             Text = "WinSwitcher";
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
@@ -733,22 +734,32 @@ namespace WinSwitcher
                 using (Pen ring = new Pen(Color.FromArgb(ringAlpha, 245, 245, 250), 1.2f))
                     g.DrawEllipse(ring, circle);
 
-                // Two horizontal arrows (⇄) meaning "switch". Two pens:
-                // GDI+ rejects assigning null to Pen.CustomEndCap, so reuse is not possible.
+                // Two horizontal arrows (⇄) meaning "switch": round-capped shafts plus
+                // filled triangle heads, matching the embedded app.ico glyph.
                 Color glyphColor = Color.FromArgb(240, 245, 250);
-                using (Pen rightPen = new Pen(glyphColor, 2.1f))
+                using (Pen glyphPen = new Pen(glyphColor, 2.1f))
+                using (SolidBrush glyphBrush = new SolidBrush(glyphColor))
                 {
-                    rightPen.StartCap = LineCap.Round;
-                    rightPen.CustomEndCap = new AdjustableArrowCap(4.2f, 5.2f, true);
+                    glyphPen.StartCap = LineCap.Round;
+                    glyphPen.EndCap = LineCap.Round;
+
                     // Top arrow, pointing right.
-                    g.DrawLine(rightPen, 10, 14, 25, 14);
-                }
-                using (Pen leftPen = new Pen(glyphColor, 2.1f))
-                {
-                    leftPen.EndCap = LineCap.Round;
-                    leftPen.CustomStartCap = new AdjustableArrowCap(4.2f, 5.2f, true);
+                    g.DrawLine(glyphPen, 10, 14, 22.5f, 14);
+                    g.FillPolygon(glyphBrush, new[]
+                    {
+                        new PointF(27, 14),
+                        new PointF(22.5f, 10.8f),
+                        new PointF(22.5f, 17.2f)
+                    });
+
                     // Bottom arrow, pointing left.
-                    g.DrawLine(leftPen, 28, 24, 13, 24);
+                    g.DrawLine(glyphPen, 28, 24, 15.5f, 24);
+                    g.FillPolygon(glyphBrush, new[]
+                    {
+                        new PointF(11, 24),
+                        new PointF(15.5f, 20.8f),
+                        new PointF(15.5f, 27.2f)
+                    });
                 }
 
                 Native.PaintLayeredWindow(Handle, bmp, Left, Top);
